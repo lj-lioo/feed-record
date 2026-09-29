@@ -1,0 +1,17 @@
+name: enable-pages
+# 手动运行：尝试用 GITHUB_TOKEN 把 GitHub Pages 的来源设为 gh-pages 分支（如果权限不够会失败，需要在仓库 Settings → Pages 里手动设置）
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable Pages from gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pages" && exit 0 || true
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages" -f "source[branch]=gh-pages" -f "source[path]=/"
