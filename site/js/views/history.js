@@ -1,9 +1,9 @@
-// 历史：近 7 天小结 + 按天分组的记录（点一条可编辑/删除）
+// 历史：近 7 天每天次数 + 按天分组的记录（点一条可改时间/删除）
 import { store } from '../store.js';
 import { esc } from '../ui.js';
-import { groupByDay, daySummary, sortDesc, dur, relDay, cnDate, weekday, dayStart, addDaysMs, uid, suggestSide } from '../feeds.js';
+import { groupByDay, daySummary, sortDesc, dur, relDay, cnDate, weekday, dayStart, addDaysMs } from '../feeds.js';
 import { feedRow } from './home.js';
-import { openLogSheet } from './log.js';
+import { openTimeSheet } from './log.js';
 
 export function renderHistory(root) {
   const feeds = store.feeds();
@@ -21,20 +21,15 @@ export function renderHistory(root) {
       <div class="bars">${week.map((d) => `
         <div class="bar-row"><span class="bl">${relDay(d.day, now) === '今天' ? '今天' : weekday(d.day)}</span>
           <span class="bt"><i style="width:${(d.count / maxC * 100).toFixed(0)}%"></i></span>
-          <span class="bv">${d.count}次${d.total ? ` · ${d.total}分` : ''}</span></div>`).join('')}</div>
+          <span class="bv">${d.count}次</span></div>`).join('')}</div>
     </section>
     ${days.length ? days.map((d) => `
       <section class="card day-card">
-        <div class="day-head"><b>${relDay(d.day, now)}${['今天', '昨天', '前天'].includes(relDay(d.day, now)) ? ` · ${cnDate(d.day)}` : ''} ${weekday(d.day)}</b><span>${d.count} 次 · ${d.total} 分钟</span></div>
-        <div class="small muted">左 ${d.left} 分 · 右 ${d.right} 分${d.avgGap ? ` · 平均间隔 ${dur(d.avgGap)}` : ''}</div>
+        <div class="day-head"><b>${relDay(d.day, now)}${['今天', '昨天', '前天'].includes(relDay(d.day, now)) ? ` · ${cnDate(d.day)}` : ''} ${weekday(d.day)}</b><span>${d.count} 次</span></div>
+        ${d.avgGap ? `<div class="small muted">平均间隔 ${dur(d.avgGap)}</div>` : ''}
         <ul class="feed-list">${d.feeds.map((f) => feedRow(f, all[all.indexOf(f) + 1], now, false)).join('')}</ul>
       </section>`).join('') : '<section class="card"><p class="muted center">还没有记录</p></section>'}
   `;
-  root.querySelectorAll('.feed-row').forEach((li) => li.onclick = () => openLogSheet(li.dataset.id));
-  root.querySelector('#btnBackfill').onclick = () => {
-    // 补记：先按 30 分钟前建一条，面板里改成实际时间；不是最近一次的话不会动闹钟
-    const d = new Date(now - 30 * 60000); d.setSeconds(0, 0);
-    const f = store.addFeed({ id: uid(), start: d.getTime(), side: suggestSide(feeds).side });
-    openLogSheet(f.id, { isNew: true });
-  };
+  root.querySelectorAll('.feed-row').forEach((li) => li.onclick = () => openTimeSheet(li.dataset.id));
+  root.querySelector('#btnBackfill').onclick = () => openTimeSheet();
 }

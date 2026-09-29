@@ -111,9 +111,14 @@ a { color: var(--primary-dark); }
 .feed-btn:active { transform: scale(0.98); }
 .feed-btn .fb-main { font-size: 34px; font-weight: 900; letter-spacing: 2px; }
 .feed-btn .fb-sub { font-size: 15px; opacity: .92; }
+.sub-actions { display: flex; justify-content: center; gap: 10px; margin: -4px 0 14px; }
+.sub-actions .chip-btn { box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.sub-actions .chip-btn:disabled { opacity: .45; }
+.just-logged { display: flex; align-items: center; justify-content: center; gap: 10px; margin: -6px 0 10px; font-size: 15px; color: var(--muted); }
+.just-logged .link-btn { background: none; border: 0; font-size: 15px; font-weight: 700; color: var(--primary-dark); text-decoration: underline; padding: 6px; }
 @media (prefers-color-scheme: dark) { .feed-btn { background: #1B7F76; color: #EAFBF8; box-shadow: 0 8px 22px rgba(0,0,0,0.5); } }
 
-.today-grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr; text-align: center; gap: 6px; }
+.today-grid { display: grid; grid-template-columns: 1fr 1fr; text-align: center; gap: 6px; }
 .today-grid .num { font-size: 30px; font-weight: 900; color: var(--primary-dark); line-height: 1.2; }
 .today-grid .small-num { font-size: 18px; padding-top: 7px; }
 .today-grid .lab { font-size: 13px; color: var(--muted); }
@@ -126,10 +131,6 @@ a { color: var(--primary-dark); }
 .fr-time small, .fr-detail small { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
 .fr-detail { flex: 1; font-size: 15px; font-weight: 600; min-width: 0; }
 .fr-gap { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.3; flex: none; }
-.side-tag { flex: none; min-width: 44px; text-align: center; font-size: 14px; font-weight: 800; border-radius: 999px; padding: 4px 8px; background: var(--line); color: var(--muted); }
-.side-tag.s-L { background: var(--left-soft); color: var(--left); }
-.side-tag.s-R { background: var(--right-soft); color: var(--right); }
-.side-tag.s-B { background: var(--both-soft); color: var(--both); }
 .day-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; gap: 8px; }
 .day-head span { font-size: 14px; color: var(--primary-dark); font-weight: 700; white-space: nowrap; }
 .bars { display: flex; flex-direction: column; gap: 6px; }

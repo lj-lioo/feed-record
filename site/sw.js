@@ -2,7 +2,7 @@
 // 注意：本App和「宝宝记录」同一个网站来源（lj-lioo.github.io），CacheStorage 是共用的：
 // - 这里只删除自己的旧缓存（feed-record- 前缀），绝不动宝宝记录的缓存；
 // - 宝宝记录的 SW 升级时会删掉“不是它自己的”缓存（包括本App的），所以取不到缓存时会自动从网络重新缓存。
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.0';
 const PREFIX = 'feed-record-';
 const CACHE = `${PREFIX}${VERSION}`;
 const ASSETS = [

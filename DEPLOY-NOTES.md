@@ -12,3 +12,9 @@
     `PATH=~/.local/node22/bin:$PATH npx wrangler d1 migrations apply baby-record-sync --local && npx wrangler dev --port 8788 --ip 127.0.0.1`，
     然后 `SYNC_BASE=http://127.0.0.1:8788 node test/sync-e2e.mjs`（不会写生产 D1）。
 - 测试：`npm test`（单元）、`node test/e2e.mjs`（需 `cd site && python3 -m http.server 8092 --bind 127.0.0.1`；生成 screenshots/）、`node test/sync-e2e.mjs`、`node test/verify-live.mjs --sw`。
+
+## 版本
+- v1.0.0（2026-09-29）：首版。
+- v1.1.0（2026-09-29）：按用户反馈只记喂奶时间 —— 去掉左右/分钟/备注（界面、历史、每日汇总只剩次数和平均间隔、闹钟标题/备注、命令行参数、测试）。
+  大按钮一点 = 记录现在 + 同一次点击里打开快捷指令；新增「改上次时间 / 补记一次 / 撤销」。闹钟签名从 5 段（含侧别）改为 4 段 `id|start|间隔|次数`，
+  store.migrate 会把旧签名转换掉；旧记录的 side/minL/minR/note 原样保留不显示。文件名未改（views/log.js 现在是时间面板），因为 workflow 导入不会删除旧文件。

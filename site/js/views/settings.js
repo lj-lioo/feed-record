@@ -8,7 +8,7 @@ import { unlockAudio } from '../sound.js';
 import { syncAvailable, syncStatus, enableSync, disableSync, syncNow } from '../sync.js';
 import { extractSyncKey } from '../sync-core.js';
 // 本组 JS 的版本（发布时与 config.js 的 appVersion、sw.js 的 VERSION 一起改）
-export const APP_BUILD = '1.0.0';
+export const APP_BUILD = '1.1.0';
 const PRESETS = [120, 150, 180, 210, 240];
 
 export const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -39,7 +39,7 @@ export function renderSettings(root) {
       <p class="small muted" id="cntHint">上次喂奶后 ${Array.from({ length: n }, (_, i) => intervalText(st.intervalMin * (i + 1))).join('、')} 各响一次；忘了点「喂奶了」，后面的也会响。（${MIN_ALARMS}～${MAX_ALARMS} 次）</p>
       <div class="field"><label for="scName">快捷指令名称（需与「快捷指令」App 里的名称完全一致）</label>
         <input id="scName" class="input" value="${esc(st.shortcutName)}"></div>
-      <label class="kv"><span>点「完成」后自动打开快捷指令重设闹钟</span><input type="checkbox" id="autoSc" ${st.autoShortcut ? 'checked' : ''}></label>
+      <label class="kv"><span>点「喂奶了」/改时间后自动打开快捷指令重设闹钟</span><input type="checkbox" id="autoSc" ${st.autoShortcut ? 'checked' : ''}></label>
       <button class="btn block" id="btnTestAlarm">测试闹钟（2分钟后响）</button>
       <p class="small muted">会清空「喂奶」列表，新建一条 2 分钟后响的测试提醒，并重建当前的喂奶闹钟。</p>
       <button class="btn secondary block" id="btnResetNow">立即重设 iPhone 闹钟</button>

@@ -2,21 +2,21 @@
 // 快捷指令先删除「提醒事项」里「喂奶」列表中所有未完成的提醒，再为每一行新建一条「紧急」提醒（iOS 26.2+ 像闹钟一样全屏响铃）。
 //
 // 传入文本（与「宝宝记录」的「宝宝闹钟」同一格式）：每行一个闹钟，字段用半角 | 分隔
-//   2026-09-30 00:15|🍼 该喂奶了（第1次 · 上次 20:15 左边）|喂奶记录 · 上次 9月29日 20:15 左边 · 间隔4小时 · 第1次提醒（共3次）
-//   2026-09-30 04:15|🍼 该喂奶了（第2次 · 上次 20:15 左边）|…
+//   2026-09-30 00:15|🍼 该喂奶了（第1次 · 上次 20:15）|喂奶记录 · 上次 9月29日 20:15 · 间隔4小时 · 第1次提醒（共3次）
+//   2026-09-30 04:15|🍼 该喂奶了（第2次 · 上次 20:15）|…
 // 没有任何喂奶记录时只传 CLEAR：快捷指令只清空列表，不新建。
-import { latestFeed, alarmSlots, clampCount, clampInterval, stamp, hm, cnDate, sideText, intervalText, DEFAULT_INTERVAL_MIN, DEFAULT_ALARM_COUNT } from './feeds.js';
+import { latestFeed, alarmSlots, clampCount, clampInterval, stamp, hm, cnDate, intervalText, DEFAULT_INTERVAL_MIN, DEFAULT_ALARM_COUNT } from './feeds.js';
 
 export const DEFAULT_SHORTCUT = '喂奶闹钟';
 export const CLEAR = 'CLEAR';
 const MIN = 60000;
 const clean = (s) => String(s || '').replace(/[|\r\n]+/g, ' ').trim();
 
-// 闹钟“签名”：只包含会影响闹钟时间/标题的字段。签名变了 = iPhone 上的闹钟需要重设。
+// 闹钟“签名”：只包含会影响闹钟时间/标题的字段（最近一次的 id 和时间、间隔、次数）。签名变了 = iPhone 上的闹钟需要重设。
 export function alarmSig(feeds, intervalMin = DEFAULT_INTERVAL_MIN, count = DEFAULT_ALARM_COUNT) {
   const last = latestFeed(feeds);
   if (!last) return CLEAR;
-  return `${last.id}|${last.start}|${last.side || '-'}|${clampInterval(intervalMin)}|${clampCount(count)}`;
+  return `${last.id}|${last.start}|${clampInterval(intervalMin)}|${clampCount(count)}`;
 }
 
 // 计算要交给快捷指令的闹钟：
@@ -27,8 +27,7 @@ export function alarmPlan({ feeds, intervalMin = DEFAULT_INTERVAL_MIN, count = D
   const sig = alarmSig(feeds, intervalMin, count);
   if (!last) return { sig, clear: true, lines: [], last: null };
   const N = clampCount(count), iv = clampInterval(intervalMin);
-  const side = sideText(last);
-  const lastTxt = `上次 ${hm(last.start)}${side ? ' ' + side : ''}`;
+  const lastTxt = `上次 ${hm(last.start)}`;
   const slots = alarmSlots(feeds, iv, N);
   const lines = [];
   const future = slots.filter((s) => s.at > now + 30000);
@@ -36,13 +35,13 @@ export function alarmPlan({ feeds, intervalMin = DEFAULT_INTERVAL_MIN, count = D
     const overdue = slots.filter((s) => s.at <= now + 30000).pop();
     lines.push({ k: overdue.k, at: now + MIN, overdue: true,
       title: `🍼 该喂奶了（已超时 · ${lastTxt}）`,
-      note: `喂奶记录 · 上次 ${cnDate(last.start)} ${hm(last.start)}${side ? ' ' + side : ''} · 间隔${intervalText(iv)} · 已超过第${overdue.k}次提醒时间 ${hm(overdue.at)}` });
+      note: `喂奶记录 · 上次 ${cnDate(last.start)} ${hm(last.start)} · 间隔${intervalText(iv)} · 已超过第${overdue.k}次提醒时间 ${hm(overdue.at)}` });
   }
   for (const s of future) {
     if (lines.length >= N) break;
     lines.push({ k: s.k, at: s.at, overdue: false,
       title: `🍼 该喂奶了（第${s.k}次 · ${lastTxt}）`,
-      note: `喂奶记录 · 上次 ${cnDate(last.start)} ${hm(last.start)}${side ? ' ' + side : ''} · 间隔${intervalText(iv)} · 第${s.k}次提醒（共${N}次）` });
+      note: `喂奶记录 · 上次 ${cnDate(last.start)} ${hm(last.start)} · 间隔${intervalText(iv)} · 第${s.k}次提醒（共${N}次）` });
   }
   return { sig, clear: false, lines, last };
 }

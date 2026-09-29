@@ -15,9 +15,9 @@
 node sync/feed.js init                        # 生成 frs1_ 密钥（只显示指纹），Worker 地址取 site/config.js
 node sync/feed.js pair --qr ~/.config/feed-record/pair.png   # 给手机扫码配对（内容 https://lj-lioo.github.io/feed-record/#pair=<密钥>），扫完删除
 FEED_SYNC_KEY=… node sync/feed.js use-key     # 或者采用手机上生成的密钥
-node sync/feed.js add --at -20m --side 左 --left 15 --right 10 --note 吐奶
+node sync/feed.js add --at -20m                # 只记时间（不加 --at 就是现在）；v1.1 起没有 --side/--left/--right/--note
 node sync/feed.js last                        # 最近一次、下次喂奶、手机上应响的闹钟
 node sync/feed.js list --days 3
-node sync/feed.js edit <id> --at 20:15 --side 右   |   node sync/feed.js delete <id>
+node sync/feed.js edit <id> --at 20:15   |   node sync/feed.js delete <id>
 ```
 **限制**：盒子上记录/修改/删除「最近一次」后，手机上的「喂奶闹钟」不会自动变 —— 网页 App 只能在用户点击时打开快捷指令。手机打开 App 同步后首页会显示「⚠️ iPhone 闹钟还没更新」，点「更新闹钟」即可。在那之前，手机上按旧的最近一次响铃。

@@ -8,10 +8,10 @@
 //   node feed.js set-url https://…              设置 Worker 地址
 //   node feed.js status                         配置、云端记录数、间隔
 //   node feed.js pair [--qr 文件.png] [--text]   给手机的配对二维码（内容 …/feed-record/#pair=<密钥>）；不加 --qr 则打印
-//   node feed.js add [--at 20:15|-20m|"20分钟前"|"2026-09-29 20:15"] [--side 左|右|两边] [--left 15] [--right 10] [--note 备注]
+//   node feed.js add [--at 20:15|-20m|"20分钟前"|"2026-09-29 20:15"]   记一次喂奶（只记时间；不加 --at 就是现在）
 //   node feed.js last                           最近一次 + 下次喂奶时间 + 应响的闹钟
 //   node feed.js list [--days 2] [--json]       按天列出（默认今天和昨天）
-//   node feed.js edit <id> [--at …] [--side …] [--left …] [--right …] [--note …]
+//   node feed.js edit <id> --at …               改喂奶时间
 //   node feed.js delete <id>
 // ⚠️ 从这里记录的喂奶不会自动重设手机上的「喂奶闹钟」：手机打开 App 后首页会提示「iPhone 闹钟还没更新」，点一下才会重设。
 process.env.TZ ||= 'Asia/Shanghai';
@@ -100,7 +100,7 @@ async function pushFeeds(cfg, keys, items) {
   return res;
 }
 
-const fmt = (f, now = Date.now()) => `${F.whenText(f.start, now)}  ${f.side ? F.SIDES[f.side] : '—'}${f.minL ? `  左${f.minL}` : ''}${f.minR ? `  右${f.minR}` : ''}${f.note ? `  （${f.note}）` : ''}${f.source === 'box-cli' ? '  [助手]' : ''}  [${f.id}]`;
+const fmt = (f, now = Date.now()) => `${F.whenText(f.start, now)}${f.source === 'box-cli' ? '  [助手]' : ''}  [${f.id}]`;
 function nextInfo(list, prefs) {
   const iv = F.clampInterval(prefs?.intervalMin ?? F.DEFAULT_INTERVAL_MIN), n = F.clampCount(prefs?.alarmCount ?? F.DEFAULT_ALARM_COUNT);
   const plan = S.alarmPlan({ feeds: list, intervalMin: iv, count: n });
@@ -110,20 +110,13 @@ function nextInfo(list, prefs) {
     `手机上应响的闹钟：${plan.lines.map((l) => F.whenText(l.at)).join('、')}`].join('\n');
 }
 function feedFromOpts(opt, base = {}) {
+  const gone = ['side', 'left', 'right', 'note'].filter((k) => opt[k] !== undefined);
+  if (gone.length) throw new Error(`v1.1 起只记录喂奶时间，不再支持 ${gone.map((k) => '--' + k).join(' ')}`);
   const out = { ...base };
   if (opt.at !== undefined) {
     out.start = F.parseWhen(String(opt.at));
     if (out.start > Date.now() + 5 * 60000) throw new Error('开始时间不能晚于现在');
   }
-  if (opt.side !== undefined) out.side = F.parseSide(String(opt.side));
-  if (opt.left !== undefined) out.minL = Number(opt.left);
-  if (opt.right !== undefined) out.minR = Number(opt.right);
-  if (opt.note !== undefined) out.note = String(opt.note === true ? '' : opt.note);
-  for (const k of ['minL', 'minR']) if (out[k] !== undefined && !(Number.isFinite(out[k]) && out[k] >= 0 && out[k] <= 180)) throw new Error('分钟数应在 0～180');
-  // 侧别跟分钟数对齐：只填了分钟就推断侧别；左边的记录又加了右边分钟 → 两边
-  const L = out.minL || 0, R = out.minR || 0;
-  if (!out.side && (L || R)) out.side = L && R ? 'B' : L ? 'L' : 'R';
-  else if ((out.side === 'L' && R) || (out.side === 'R' && L)) out.side = 'B';
   return out;
 }
 
@@ -170,7 +163,7 @@ async function main() {
     return;
   }
   if (cmd === 'help' || cmd === '--help') {
-    console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 19).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1).filter((l, i, arr) => arr.slice(0, i + 1).every((x) => x.startsWith('//'))).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
     return;
   }
 
@@ -184,7 +177,6 @@ async function main() {
   if (cmd === 'add') {
     const { feeds, prefs } = await pullAll(cfg, keys);
     const base = feedFromOpts(opt, { start: Date.now() });
-    if (opt.side === undefined && !base.side) base.side = F.suggestSide([...feeds.values()].map((x) => x.feed)).side;
     const now = Date.now();
     const d = new Date(base.start); d.setSeconds(0, 0);
     const feed = F.normalizeFeed({ ...base, start: d.getTime(), id: F.uid(), createdAt: now, updatedAt: now, source: 'box-cli' });
@@ -211,7 +203,7 @@ async function main() {
     if (opt.json) { console.log(JSON.stringify(sel, null, 2)); return; }
     for (const d of F.groupByDay(sel)) {
       const full = F.daySummary(list, d.day);
-      console.log(`== ${F.relDay(d.day)} ${F.cnDate(d.day)} ${F.weekday(d.day)}：${full.count} 次，${full.total} 分钟（左${full.left} 右${full.right}）${full.avgGap ? `，平均间隔 ${F.dur(full.avgGap)}` : ''}`);
+      console.log(`== ${F.relDay(d.day)} ${F.cnDate(d.day)} ${F.weekday(d.day)}：${full.count} 次${full.avgGap ? `，平均间隔 ${F.dur(full.avgGap)}` : ''}`);
       full.feeds.forEach((f) => console.log('  ' + fmt(f)));
     }
     console.log(`共 ${sel.length} 条（最近 ${days} 天，--days N 看更多）`);
@@ -230,6 +222,7 @@ async function main() {
       if (wasLatest) console.log('⚠️ 删的是最近一次：手机上打开 App 点「更新闹钟」重设。');
       return;
     }
+    if (opt.at === undefined && !['side', 'left', 'right', 'note'].some((k) => opt[k] !== undefined)) throw new Error('用法：edit <id> --at 20:15（只能改喂奶时间）');
     const feed = F.normalizeFeed({ ...feedFromOpts(opt, hit.feed), id: hit.feed.id, updatedAt });
     await pushFeeds(cfg, keys, [{ feed }]);
     console.log(`已修改：${fmt(feed)}`);

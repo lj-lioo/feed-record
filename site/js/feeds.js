@@ -1,7 +1,5 @@
 // 喂奶记录 · 纯函数（浏览器与盒子命令行共用，无 DOM、无存储依赖）
 // 时间一律用「设备本地时间」：手机在 Asia/Shanghai；快捷指令「从输入中获取日期」也按手机本地时间解析，两边一致。
-export const SIDES = { L: '左边', R: '右边', B: '两边' };
-export const SIDE_SHORT = { L: '左', R: '右', B: '两边' };
 export const DEFAULT_INTERVAL_MIN = 240;   // 默认 4 小时
 export const DEFAULT_ALARM_COUNT = 3;      // 默认连响 3 次：+1×、+2×、+3× 间隔
 export const MIN_ALARMS = 1, MAX_ALARMS = 6;
@@ -38,25 +36,23 @@ export function intervalText(min) { const h = Math.floor(min / 60), m = min % 60
 export function clampCount(n) { n = Math.round(Number(n) || DEFAULT_ALARM_COUNT); return Math.min(MAX_ALARMS, Math.max(MIN_ALARMS, n)); }
 export function clampInterval(min) { min = Math.round(Number(min) || DEFAULT_INTERVAL_MIN); return Math.min(12 * 60, Math.max(30, min)); }
 
+// v1.1 起只记录喂奶时间。旧数据（v1.0 的 side / minL / minR / note）原样保留在记录里（导出/同步不丢），界面不再显示。
+const LEGACY = ['side', 'minL', 'minR', 'note'];
 export function normalizeFeed(f) {
-  const side = ['L', 'R', 'B'].includes(f.side) ? f.side : '';
-  const m = (v) => Math.max(0, Math.min(180, Math.round(Number(v) || 0)));
-  return {
+  const out = {
     id: String(f.id || uid()),
     start: Number(f.start),
-    side,
-    minL: m(f.minL), minR: m(f.minR),
-    note: String(f.note || ''),
     source: f.source || '',
     createdAt: f.createdAt || Date.now(),
     updatedAt: f.updatedAt || Date.now(),
   };
+  for (const k of LEGACY) if (f[k] !== undefined && f[k] !== '' && f[k] !== 0) out[k] = f[k];
+  return out;
 }
 export function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
 export const sortDesc = (feeds) => [...feeds].filter((f) => Number.isFinite(f.start)).sort((a, b) => b.start - a.start || String(b.id).localeCompare(String(a.id)));
 export function latestFeed(feeds) { return sortDesc(feeds)[0] || null; }
-export const feedMinutes = (f) => (f.minL || 0) + (f.minR || 0);
 
 // 下一次喂奶时间 = 最近一次喂奶的开始时间 + 间隔。提前喂了就从那次重新算（只看最近一次）。
 export function nextFeedAt(feeds, intervalMin = DEFAULT_INTERVAL_MIN) {
@@ -71,39 +67,14 @@ export function alarmSlots(feeds, intervalMin = DEFAULT_INTERVAL_MIN, count = DE
   return Array.from({ length: clampCount(count) }, (_, i) => ({ k: i + 1, at: last.start + (i + 1) * iv }));
 }
 
-export function sideText(f) {
-  if (!f || !f.side) return '';
-  if (f.side === 'B') return '两边';
-  return SIDES[f.side];
-}
-export function detailText(f) {
-  const parts = [];
-  if (f.minL) parts.push(`左${f.minL}`);
-  if (f.minR) parts.push(`右${f.minR}`);
-  if (parts.length) return parts.join(' ') + '分钟';
-  return sideText(f);
-}
-
-// 建议这次先喂哪边：上次左→右、右→左；上次两边→时间少的那边（一样多则左）
-export function suggestSide(feeds) {
-  const last = sortDesc(feeds).find((f) => f.side);
-  if (!last) return { side: 'L', reason: '' };
-  if (last.side === 'L') return { side: 'R', reason: '上次左边' };
-  if (last.side === 'R') return { side: 'L', reason: '上次右边' };
-  if ((last.minL || 0) > (last.minR || 0)) return { side: 'R', reason: '上次右边喂得少' };
-  if ((last.minR || 0) > (last.minL || 0)) return { side: 'L', reason: '上次左边喂得少' };
-  return { side: 'L', reason: '上次两边' };
-}
-
-// 某天（本地日期）的汇总；gaps 用「这次开始 − 前一次开始」（前一次可以在前一天）
+// 某天（本地日期）的汇总：次数 + 平均间隔；gaps 用「这次 − 前一次」（前一次可以在前一天）
 export function daySummary(feeds, dayMs) {
   const s = dayStart(dayMs), e = addDaysMs(s, 1);
   const asc = sortDesc(feeds).reverse();
   const list = asc.filter((f) => f.start >= s && f.start < e);
   const gaps = [];
   for (const f of list) { const i = asc.indexOf(f); if (i > 0) gaps.push(f.start - asc[i - 1].start); }
-  const left = list.reduce((a, f) => a + (f.minL || 0), 0), right = list.reduce((a, f) => a + (f.minR || 0), 0);
-  return { day: s, count: list.length, left, right, total: left + right, avgGap: gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0, feeds: list.reverse() };
+  return { day: s, count: list.length, avgGap: gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0, feeds: list.reverse() };
 }
 export function groupByDay(feeds) {
   const days = new Map();
@@ -134,12 +105,4 @@ export function parseWhen(text, now = Date.now()) {
   const ms = Date.parse(t);
   if (Number.isFinite(ms)) return ms;
   throw new Error(`看不懂的时间：${t}（例：20:15、-20m、20分钟前、2026-09-29 20:15）`);
-}
-export function parseSide(s) {
-  const t = String(s || '').trim().toUpperCase();
-  if (!t) return '';
-  if (['L', 'LEFT', '左', '左边'].includes(t)) return 'L';
-  if (['R', 'RIGHT', '右', '右边'].includes(t)) return 'R';
-  if (['B', 'BOTH', '两边', '双边', '两侧'].includes(t)) return 'B';
-  throw new Error(`侧别只能是 左/右/两边（L/R/B）：${s}`);
 }

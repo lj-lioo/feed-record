@@ -1,4 +1,4 @@
-// 单元测试：下次喂奶时间计算（提前喂奶重置、编辑/删除最近一次、跨午夜、侧别建议、每日汇总、时间解析）
+// 单元测试：下次喂奶时间计算（提前喂奶重置、编辑/删除最近一次、跨午夜、每日次数、时间解析、旧数据兼容）
 // 运行：TZ=Asia/Shanghai node --test test/feeds.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import * as F from '../site/js/feeds.js';
 import { alarmSig, alarmPlan } from '../site/js/shortcuts.js';
 
 const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).getTime();
-const feed = (id, t, side = 'L', minL = 0, minR = 0) => F.normalizeFeed({ id, start: t, side, minL, minR });
+const feed = (id, t) => F.normalizeFeed({ id, start: t });
 
 test('运行在 Asia/Shanghai 时区', () => {
   assert.equal(Intl.DateTimeFormat().resolvedOptions().timeZone, 'Asia/Shanghai');
@@ -21,7 +21,7 @@ test('下次喂奶 = 最近一次 + 4 小时（默认），跨午夜到第二天
 });
 
 test('提前喂奶（2小时后又喂）：从最近一次重新算，旧时间不再出现', () => {
-  const feeds = [feed('a', at(2026, 9, 29, 20, 15)), feed('b', at(2026, 9, 29, 22, 15), 'R')];
+  const feeds = [feed('a', at(2026, 9, 29, 20, 15)), feed('b', at(2026, 9, 29, 22, 15))];
   assert.equal(F.stamp(F.nextFeedAt(feeds)), '2026-09-30 02:15');
   const slots = F.alarmSlots(feeds, 240, 3).map((s) => F.stamp(s.at));
   assert.deepEqual(slots, ['2026-09-30 02:15', '2026-09-30 06:15', '2026-09-30 10:15']);
@@ -36,13 +36,16 @@ test('补记一条更早的喂奶：不影响下次时间和闹钟签名', () =>
   assert.equal(alarmSig(more), sig);
 });
 
-test('编辑最近一次：改开始时间/侧别 → 签名变（需重设）；只改分钟数/备注 → 签名不变', () => {
-  const f = feed('a', at(2026, 9, 29, 20, 15), 'L', 10);
+test('编辑最近一次：改开始时间 → 签名变（需重设）；改回原时间 → 签名恢复', () => {
+  const f = feed('a', at(2026, 9, 29, 20, 15));
   const sig = alarmSig([f]);
-  assert.notEqual(alarmSig([{ ...f, start: at(2026, 9, 29, 19, 55) }]), sig);
-  assert.equal(F.stamp(F.nextFeedAt([{ ...f, start: at(2026, 9, 29, 19, 55) }])), '2026-09-29 23:55');
-  assert.notEqual(alarmSig([{ ...f, side: 'B' }]), sig);
-  assert.equal(alarmSig([{ ...f, minL: 25, minR: 5, note: '吐奶' }]), sig);
+  const moved = { ...f, start: at(2026, 9, 29, 19, 55) };
+  assert.notEqual(alarmSig([moved]), sig);
+  assert.equal(F.stamp(F.nextFeedAt([moved])), '2026-09-29 23:55');
+  assert.equal(alarmSig([{ ...moved, start: f.start }]), sig);
+  assert.equal(sig, `a|${f.start}|240|3`);
+  assert.notEqual(alarmSig([f], 180), sig);  // 间隔变 → 需重设
+  assert.notEqual(alarmSig([f], 240, 4), sig);  // 次数变 → 需重设
 });
 
 test('删除最近一次：回到上一次重新算；全部删除 → CLEAR', () => {
@@ -71,26 +74,27 @@ test('跨午夜 / 跨多天：23:50 喂 → 03:50、07:50、11:50（第二天）
   assert.deepEqual(F.alarmSlots(feeds).map((s) => F.stamp(s.at)), ['2027-01-01 03:50', '2027-01-01 07:50', '2027-01-01 11:50']);
 });
 
-test('建议侧别：左→右，右→左，两边→少的一边', () => {
-  assert.equal(F.suggestSide([]).side, 'L');
-  assert.equal(F.suggestSide([feed('a', 1000, 'L')]).side, 'R');
-  assert.equal(F.suggestSide([feed('a', 1000, 'L'), feed('b', 2000, 'R')]).side, 'L');
-  assert.equal(F.suggestSide([feed('a', 1000, 'B', 15, 10)]).side, 'R');
-  assert.equal(F.suggestSide([feed('a', 1000, 'B', 5, 10)]).side, 'L');
-  assert.equal(F.suggestSide([feed('a', 1000, 'R'), feed('b', 2000, '')]).side, 'L'); // 没填侧别的跳过
+test('旧数据兼容：v1.0 带侧别/分钟/备注的记录照样能读，时间和闹钟只看开始时间', () => {
+  const old = { id: 'o', start: String(at(2026, 9, 29, 20, 15)), side: 'L', minL: 12, minR: 0, note: '吐奶', createdAt: 5, updatedAt: 6 };
+  const n = F.normalizeFeed(old);
+  assert.equal(n.start, at(2026, 9, 29, 20, 15));
+  assert.equal(n.updatedAt, 6);
+  assert.equal(n.side, 'L'); assert.equal(n.minL, 12); assert.equal(n.note, '吐奶'); // 原样保留，只是不再显示
+  assert.equal(alarmSig([n]), alarmSig([feed('o', at(2026, 9, 29, 20, 15))]));
+  const fresh = F.normalizeFeed({ id: 'n', start: at(2026, 9, 29, 21, 0), side: '', minL: 0, minR: 0, note: '' });
+  assert.deepEqual(Object.keys(fresh).sort(), ['createdAt', 'id', 'source', 'start', 'updatedAt']);
 });
 
-test('每日汇总：次数、分钟、平均间隔（按本地日期分组，跨午夜）', () => {
+test('每日汇总：只有次数和平均间隔（按本地日期分组，跨午夜）', () => {
   const feeds = [
-    feed('y', at(2026, 9, 28, 22, 0), 'L', 10),
-    feed('a', at(2026, 9, 29, 1, 30), 'R', 0, 12),
-    feed('b', at(2026, 9, 29, 5, 0), 'B', 8, 7),
-    feed('c', at(2026, 9, 29, 23, 59), 'L', 5),
+    feed('y', at(2026, 9, 28, 22, 0)),
+    feed('a', at(2026, 9, 29, 1, 30)),
+    feed('b', at(2026, 9, 29, 5, 0)),
+    feed('c', at(2026, 9, 29, 23, 59)),
   ];
   const d = F.daySummary(feeds, at(2026, 9, 29, 12, 0));
   assert.equal(d.count, 3);
-  assert.equal(d.total, 32);
-  assert.equal(d.left, 13); assert.equal(d.right, 19);
+  assert.ok(!('total' in d) && !('left' in d) && !('right' in d));
   assert.equal(d.avgGap, Math.round((210 + 210 + 1139) * 60000 / 3));  // 前一天 22:00 → 01:30 也算一个间隔
   const days = F.groupByDay(feeds);
   assert.equal(days.length, 2);
@@ -112,5 +116,5 @@ test('解析开始时间：20:15、-20m、20分钟前、1h30m 前、完整日期
   assert.equal(F.parseWhen('-1h30m', now), now - 90 * 60000);
   assert.equal(F.parseWhen('2026-09-29 19:05', now), at(2026, 9, 29, 19, 5));
   assert.throws(() => F.parseWhen('昨天晚上', now));
-  assert.equal(F.parseSide('左'), 'L'); assert.equal(F.parseSide('both'), 'B'); assert.throws(() => F.parseSide('中'));
+  assert.equal(F.parseSide, undefined);  // v1.1 起不再有侧别
 });

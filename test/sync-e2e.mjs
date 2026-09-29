@@ -1,5 +1,5 @@
 // 云同步端到端测试（本地 Worker：宝宝记录的同一份 Worker 代码，wrangler dev --local；不碰生产 D1）
-// ① 盒子命令行 feed.js：init / add / last / list / edit / delete；② 手机 App 用同一密钥连接 → 收到盒子记的喂奶，首页提示「iPhone 闹钟还没更新」；
+// ① 盒子命令行 feed.js：init / add / last / list / edit --at / delete（只记时间）；② 手机 App 用同一密钥连接 → 收到盒子记的喂奶，首页提示「iPhone 闹钟还没更新」；
 // ③ App 记的喂奶 → 命令行能看到；④ 与宝宝记录的数据隔离（brs1_ 密钥被拒；同样的随机字节派生出不同的空间）。
 // 运行：SYNC_BASE=http://127.0.0.1:8788 BASE=http://127.0.0.1:8092/ node test/sync-e2e.mjs
 import { chromium } from 'playwright';
@@ -20,15 +20,17 @@ let out = cli('init', '--url', SYNC);
 ok('init 生成 frs1_ 密钥（只显示指纹），文件权限 600', /已生成新的同步密钥（frs1_.{2}…/.test(out) && (fs.statSync(ENV).mode & 0o777) === 0o600, out);
 ok('init 输出里没有完整密钥', !/frs1_[A-Za-z0-9_-]{43}/.test(out));
 const key = /FEED_SYNC_KEY=(\S+)/.exec(fs.readFileSync(ENV, 'utf8'))[1];
-out = cli('add', '--at', '-20m', '--side', '左', '--left', '12');
-ok('add --at -20m --side 左 --left 12', out.includes('已记录') && out.includes('左边  左12') && out.includes('还没重设'), out);
+out = cli('add', '--at', '-20m');
+ok('add --at -20m：只记时间', out.includes('已记录') && out.includes('[助手]') && !/左|右|两边/.test(out) && out.includes('还没重设'), out);
 out = cli('last');
 ok('last：距上次 20分钟，列出应响的 3 个闹钟', /距上次喂奶 (19|20)分钟/.test(out) && (out.match(/、/g) || []).length === 2, out);
 const id = /\[([a-z0-9]+)\]/.exec(out)[1];
-out = cli('edit', id, '--left', '15');
-ok('edit 只改分钟数 → 不提示重设闹钟', out.includes('左15') && !out.includes('闹钟时间变了'), out);
-out = cli('edit', id, '--right', '5');
-ok('edit 左边的记录又加右边分钟 → 变成两边，并提示重设闹钟（标题里的侧别变了）', out.includes('两边  左15  右5') && out.includes('闹钟时间变了'), out);
+out = cli('edit', id, '--at', '-30m');
+ok('edit --at -30m → 改时间并提示重设闹钟', out.includes('已修改') && out.includes('闹钟时间变了') && /距上次喂奶 (29|30)分钟/.test(out), out);
+out = cli('add', '--side', '左', '--left', '12');
+ok('旧参数 --side/--left 已去掉，会明确报错且不写入', out.startsWith('ERR') && out.includes('不再支持 --side --left'), out);
+out = cli('edit', id);
+ok('edit 不带 --at 会提示用法', out.startsWith('ERR') && out.includes('--at'), out);
 out = cli('add', '--at', 'x');
 ok('错误的时间会报错', out.startsWith('ERR') && out.includes('看不懂的时间'), out);
 
@@ -66,11 +68,12 @@ await page.click('#btnReset');
 ok('点「更新闹钟」→ 生成 3 行传入文本', (await page.evaluate(() => decodeURIComponent(window.__lastShortcutUrl))).split('\n').length === 3);
 
 // ③ App 记一次 → 命令行可见；App 改间隔 → 命令行按新间隔算
-await page.click('#feedBtn'); await page.click('#lg-side [data-s=R]'); await page.click('#lg-done');
+await page.click('#feedBtn');
+ok('App 一点「喂奶了」→ 直接记录并打开快捷指令（上次是刚才这次）', (await page.evaluate(() => decodeURIComponent(window.__lastShortcutUrl))).includes('（第1次 · 上次 '));
 await page.goto(BASE + '#/settings'); await page.click('#ivChips [data-m="180"]');
 await page.waitForTimeout(2500);
 out = cli('list');
-ok('命令行 list 能看到 App 记的（右边）和自己记的（两边，[助手]）', out.includes('右边  [') && out.includes('两边  左15  右5  [助手]') && out.includes('2 次'), out);
+ok('命令行 list 能看到 App 记的和自己记的（[助手]），今天 2 次', (out.match(/\[[a-z0-9]+\]/g) || []).length === 2 && (out.match(/\[助手\]/g) || []).length === 1 && out.includes('2 次') && !/左|右|分钟（/.test(out), out);
 out = cli('last');
 ok('命令行 last 按 App 设置的 3 小时间隔计算', out.includes('间隔 3小时'), out);
 const appId = /最近一次：.*\[([a-z0-9]+)\]/.exec(out)[1];

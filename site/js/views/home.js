@@ -1,9 +1,9 @@
-// 首页：距上次喂奶（实时）、下次喂奶时间与倒计时、iPhone 闹钟状态、大按钮「🍼 喂奶了」、今天汇总、最近记录
+// 首页：距上次喂奶（实时）、下次喂奶时间与倒计时、iPhone 闹钟状态、大按钮「🍼 喂奶了」（一点就记录并重设闹钟）、补记/改时间、今天次数、最近记录
 import { store } from '../store.js';
 import { esc } from '../ui.js';
-import { latestFeed, suggestSide, daySummary, dur, hm, whenText, relDay, cnDate, weekday, babyAgeDays, detailText, sideText, SIDES, SIDE_SHORT, sortDesc, intervalText, pad } from '../feeds.js';
+import { latestFeed, daySummary, dur, hm, whenText, relDay, cnDate, weekday, babyAgeDays, sortDesc, intervalText, pad } from '../feeds.js';
 import { alarmStatus, resetAlarm } from '../alarmctl.js';
-import { logFeedNow, openLogSheet } from './log.js';
+import { logFeedNow, openTimeSheet, undoFeed } from './log.js';
 
 let tick = null;
 
@@ -13,7 +13,6 @@ export function renderHome(root) {
   const last = latestFeed(feeds);
   const now = Date.now();
   const age = babyAgeDays(s.babyBirthday, now);
-  const sug = suggestSide(feeds);
   const today = daySummary(feeds, now);
   const st = alarmStatus(now);
   const recent = sortDesc(feeds).slice(0, 4);
@@ -43,7 +42,7 @@ export function renderHome(root) {
       ${last ? `
       <div class="st-label">距上次喂奶</div>
       <div class="st-big" id="sinceLast"></div>
-      <div class="st-sub">上次 ${esc(whenText(last.start, now))}${last.side ? ` · ${SIDES[last.side]}` : ''}${last.minL || last.minR ? ` · ${esc(detailText(last))}` : ''}</div>
+      <div class="st-sub">上次 ${esc(whenText(last.start, now))}</div>
       <div class="st-grid">
         <div><div class="st-label">下次喂奶</div><div class="st-time" id="nextTime"></div><div class="st-day" id="nextDay"></div></div>
         <div><div class="st-label" id="cdLabel">倒计时</div><div class="st-time" id="countdown"></div><div class="st-day">每 ${esc(intervalText(s.intervalMin))}</div></div>
@@ -54,15 +53,18 @@ export function renderHome(root) {
 
     ${alarmHtml}
 
-    <button class="feed-btn" id="feedBtn"><span class="fb-main">🍼 喂奶了</span><span class="fb-sub">建议先喂 <b>${SIDES[sug.side]}</b>${sug.reason ? `（${esc(sug.reason)}）` : ''}</span></button>
+    <button class="feed-btn" id="feedBtn"><span class="fb-main">🍼 喂奶了</span><span class="fb-sub">记下现在的时间，${store.settings.autoShortcut ? '并重设 iPhone 闹钟' : `${esc(intervalText(s.intervalMin))}后提醒`}</span></button>
+    ${last && last.source !== 'box-cli' && now - last.createdAt < 5 * 60000 && now - last.start < 10 * 60000 ? `<div class="just-logged" id="justLogged">✅ 刚刚记录了 <b>${hm(last.start)}</b><button class="link-btn" id="btnUndo">撤销</button></div>` : ''}
+    <div class="sub-actions">
+      <button class="chip-btn" id="btnFix" ${last ? '' : 'disabled'}>✏️ 改上次时间</button>
+      <button class="chip-btn" id="btnBackfill">🕒 补记一次</button>
+    </div>
 
     <section class="card today-card" id="todayCard">
       <div class="today-grid">
         <div><div class="num" id="todayCount">${today.count}</div><div class="lab">今天次数</div></div>
-        <div><div class="num" id="todayMin">${today.total}</div><div class="lab">总分钟</div></div>
-        <div><div class="num small-num">左${today.left} / 右${today.right}</div><div class="lab">分钟</div></div>
+        <div><div class="num small-num" id="todayGap">${today.avgGap ? esc(dur(today.avgGap)) : '—'}</div><div class="lab">今天平均间隔</div></div>
       </div>
-      ${today.avgGap ? `<div class="small muted center">平均间隔 ${dur(today.avgGap)}</div>` : ''}
     </section>
 
     ${recent.length ? `<section class="card">
@@ -72,9 +74,13 @@ export function renderHome(root) {
   `;
 
   root.querySelector('#feedBtn').onclick = () => logFeedNow();
+  root.querySelector('#btnBackfill').onclick = () => openTimeSheet();
+  if (last) root.querySelector('#btnFix').onclick = () => openTimeSheet(last.id);
+  const ub = root.querySelector('#btnUndo');
+  if (ub) ub.onclick = () => undoFeed(last.id);
   const rb = root.querySelector('#btnReset');
   if (rb) rb.onclick = () => resetAlarm();
-  root.querySelectorAll('.feed-row').forEach((li) => li.onclick = () => openLogSheet(li.dataset.id));
+  root.querySelectorAll('.feed-row').forEach((li) => li.onclick = () => openTimeSheet(li.dataset.id));
 
   clearInterval(tick);
   if (last) {
@@ -101,9 +107,7 @@ export function renderHome(root) {
 export function feedRow(f, prev, now = Date.now(), withDay = true) {
   return `<li class="feed-row" data-id="${esc(f.id)}">
     <span class="fr-time">${hm(f.start)}${withDay && relDay(f.start, now) !== '今天' ? `<small>${relDay(f.start, now)}</small>` : ''}</span>
-    ${f.side ? `<span class="side-tag s-${f.side}">${SIDE_SHORT[f.side]}</span>` : '<span class="side-tag">—</span>'}
-    <span class="fr-detail">${esc([f.minL ? `左${f.minL}` : '', f.minR ? `右${f.minR}` : ''].filter(Boolean).join(' ')) || '<span class="muted">未填分钟</span>'}${f.note ? `<small>${esc(f.note)}</small>` : ''}${f.source === 'box-cli' ? '<small>来自助手</small>' : ''}</span>
-    <span class="fr-gap">${prev ? `距上次<br>${dur(f.start - prev.start)}` : ''}</span>
+    <span class="fr-detail">${prev ? `距上一次 <b>${dur(f.start - prev.start)}</b>` : '<span class="muted">第一条记录</span>'}${f.source === 'box-cli' ? '<small>来自助手</small>' : ''}</span>
+    <span class="fr-edit" aria-hidden="true">✏️</span>
   </li>`;
 }
-export { sideText };

@@ -1,7 +1,7 @@
 // App 打开时的全屏「该喂奶了」提醒（备用：主力是 iPhone 提醒事项的紧急闹钟）
 import { store } from '../store.js';
 import { esc, toast } from '../ui.js';
-import { latestFeed, alarmSlots, suggestSide, hm, dur, whenText, SIDES, sideText, intervalText, pad } from '../feeds.js';
+import { latestFeed, alarmSlots, dur, whenText, intervalText, pad } from '../feeds.js';
 import { startAlarmSound, stopAlarmSound, unlockAudio } from '../sound.js';
 import { logFeedNow } from './log.js';
 
@@ -23,7 +23,6 @@ export function dueAlarm(now = Date.now()) {
 export function showAlarm({ key, at, k, snoozed = false, demo = false }) {
   if (current && current.key === key) return;
   const feeds = store.feeds(), last = latestFeed(feeds), s = store.settings;
-  const sug = suggestSide(feeds);
   current = { key };
   const el = document.getElementById('alarm');
   el.innerHTML = `
@@ -31,16 +30,14 @@ export function showAlarm({ key, at, k, snoozed = false, demo = false }) {
     <div class="bell">🍼</div>
     <div class="a-clock" id="aClock"></div>
     <div class="a-title">该喂奶了</div>
-    <div class="a-when">${last ? `上次 ${esc(whenText(last.start))}${last.side ? ' ' + SIDES[last.side] : ''} · 已过 ${esc(dur(Date.now() - last.start))}` : ''}</div>
+    <div class="a-when">${last ? `上次 ${esc(whenText(last.start))} · 已过 ${esc(dur(Date.now() - last.start))}` : ''}</div>
     <div class="a-why">
       <div class="lab">为什么现在提醒你</div>
       <div class="val">${snoozed ? '你刚才点了「稍后提醒」' : `距上次喂奶满 ${esc(intervalText(s.intervalMin * (k || 1)))}（第${k || 1}次提醒）`}</div>
-      <div class="lab" style="margin-top:8px">建议这次先喂</div>
-      <div class="val">${SIDES[sug.side]}${sug.reason ? `（${esc(sug.reason)}）` : ''}</div>
     </div>
     <div class="sound-hint" id="aSound"></div>
     <div class="a-actions">
-      <button class="btn block big" id="aFeed">🍼 开始喂奶（记录一次）</button>
+      <button class="btn block big" id="aFeed">🍼 现在喂奶（记录并重设闹钟）</button>
       <button class="btn secondary block" id="aSnooze">稍后提醒（10分钟）</button>
       <button class="btn ghost block" id="aOk">知道了</button>
     </div>`;
@@ -57,7 +54,7 @@ export function showAlarm({ key, at, k, snoozed = false, demo = false }) {
   }
   const fire = () => { if (!demo) store.markFired(key); };
   el.querySelector('#aOk').onclick = () => { fire(); closeAlarm(); };
-  el.querySelector('#aFeed').onclick = () => { fire(); closeAlarm(); if (!demo) logFeedNow(); };
+  el.querySelector('#aFeed').onclick = () => { fire(); closeAlarm(); if (!demo) logFeedNow({ confirmRecent: false }); };
   el.querySelector('#aSnooze').onclick = () => {
     fire();
     if (!demo && last) store.setSnooze({ at: Date.now() + 10 * 60000, key: `snz-${Date.now()}`, feedId: last.id, k });

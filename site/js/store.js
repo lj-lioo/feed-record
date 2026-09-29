@@ -8,7 +8,7 @@ const SCHEMA_VERSION = 1;
 function defaults() {
   return {
     version: SCHEMA_VERSION,
-    feeds: [],                 // 喂奶记录 {id, start, side:'L'|'R'|'B'|'', minL, minR, note, createdAt, updatedAt}
+    feeds: [],                 // 喂奶记录 {id, start, source, createdAt, updatedAt}（v1.0 的 side/minL/minR/note 如有则原样保留，不再显示）
     fired: {},                 // App 内全屏闹钟已确认的 key -> 时间
     snooze: null,              // App 内「稍后提醒」{at, key}
     alarm: { sig: '', sentAt: 0, times: [] },  // 最近一次交给快捷指令的闹钟（本机状态，不同步）
@@ -16,7 +16,7 @@ function defaults() {
       intervalMin: DEFAULT_INTERVAL_MIN,
       alarmCount: DEFAULT_ALARM_COUNT,
       shortcutName: DEFAULT_SHORTCUT,
-      autoShortcut: true,      // 点「完成」后自动打开快捷指令重设闹钟
+      autoShortcut: true,      // 点「喂奶了」/改时间后自动打开快捷指令重设闹钟（关掉则首页显示「更新闹钟」按钮）
       sound: true,
       babyName: '',
       babyBirthday: '2026-09-17',
@@ -40,6 +40,9 @@ function migrate(data) {
   out.feeds = (out.feeds || []).filter((f) => f && Number.isFinite(Number(f.start))).map(normalizeFeed);
   out.settings.intervalMin = clampInterval(out.settings.intervalMin);
   out.settings.alarmCount = clampCount(out.settings.alarmCount);
+  // v1.0 的闹钟签名带侧别（id|start|side|间隔|次数）→ v1.1 去掉侧别，避免升级后误报「闹钟还没更新」
+  const p = String(out.alarm.sig || '').split('|');
+  if (p.length === 5) out.alarm.sig = [p[0], p[1], p[3], p[4]].join('|');
   out.version = SCHEMA_VERSION;
   return out;
 }

@@ -7,13 +7,13 @@ import { execFileSync } from 'node:child_process';
 const run = (tz, code) => execFileSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, TZ: tz }, encoding: 'utf8' }).trim();
 const code = (iso, now) => `
   import { alarmPlan, payloadText } from '${new URL('../site/js/shortcuts.js', import.meta.url).href}';
-  const p = alarmPlan({ feeds: [{ id: 'a', start: Date.parse('${iso}'), side: 'L' }], now: Date.parse('${now}') });
+  const p = alarmPlan({ feeds: [{ id: 'a', start: Date.parse('${iso}') }], now: Date.parse('${now}') });
   console.log(payloadText(p).split('\\n').map((l) => l.slice(0, 16) + ' ' + l.split('|')[1]).join('\\n'));`;
 
 test('Asia/Shanghai：12:15Z = 北京 20:15 → 闹钟 00:15/04:15/08:15（次日）', () => {
   const out = run('Asia/Shanghai', code('2026-09-29T12:15:00Z', '2026-09-29T12:20:00Z')).split('\n');
   assert.deepEqual(out.map((l) => l.slice(0, 16)), ['2026-09-30 00:15', '2026-09-30 04:15', '2026-09-30 08:15']);
-  assert.match(out[0], /上次 20:15 左边/);
+  assert.match(out[0], /上次 20:15）/);
 });
 
 test('同一时刻在 America/New_York 的设备上 → 本地 08:15 → 12:15/16:15/20:15', () => {

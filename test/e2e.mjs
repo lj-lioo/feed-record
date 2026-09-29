@@ -1,5 +1,5 @@
 // 端到端测试（Playwright，iPhone 尺寸 390×844，zh-CN，Asia/Shanghai）：
-// 记录 → 快捷指令传入文本（3 个闹钟）→ 提前喂奶重置 → 编辑/删除最近一次 → 全部删除 CLEAR → 设置（间隔/次数）→ App 内全屏提醒 → 跨午夜 → 导出/导入 → 截图（浅色/深色）
+// 一点记录并立即打开快捷指令（3 个闹钟）→ 误点确认 → 提前喂奶重置 → 改时间（首页/历史）→ 补记 → 删除 → CLEAR → 撤销 → 设置（间隔/次数）→ App 内全屏提醒 → 跨午夜 → 导出/导入（含 v1.0 旧备份）→ 截图（浅色/深色）
 // 运行：node test/e2e.mjs（BASE=… 可指定地址，默认 http://127.0.0.1:8092/）
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -37,56 +37,80 @@ const times = (text) => text.split('\n').map((l) => l.slice(0, 16));
   ok('大按钮足够大（≥ 100px 高、占满宽度）', box.height >= 100 && box.width >= 340, JSON.stringify(box));
   ok('宝宝第13天（生日 2026-09-17）', (await page.locator('.topbar .sub').innerText()).includes('第 13 天'));
 
-  // 1) 一键记录
+  const count = () => page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds.length);
+  const sheetOpen = () => page.evaluate(() => { const s = document.querySelector('.sheet'); return !!s && !s.hidden && s.offsetParent !== null && s.innerHTML.trim() !== ''; });
+  ok('首页没有左右/分钟之类的选项', !/左边|右边|两边|分钟数/.test(await page.locator('#app').innerText()));
+
+  // 1) 一点就记录 + 立即打开快捷指令（不弹面板）
   await page.click('#feedBtn');
-  await page.waitForSelector('#lg-done');
-  ok('点「喂奶了」立即保存一条（开始时间 = 现在）', (await page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds.length)) === 1);
-  ok('面板显示开始时间 今天 20:15，默认左边', (await page.locator('#lg-when').innerText()) === '今天 20:15' && await page.locator('#lg-side [data-s=L].on').count() === 1);
-  for (let i = 0; i < 3; i++) await page.click('.min-row[data-k=minL] [data-d="5"]');
-  ok('左边 +5×3 = 15 分钟', (await page.inputValue('#lg-minL')) === '15');
-  ok('完成按钮写着「更新闹钟」并预告 3 个时间', (await page.locator('#lg-done').innerText()).includes('更新闹钟') && (await page.locator('#lg-alarm').innerText()).includes('00:15 · 04:15 · 08:15'));
-  await page.click('#lg-done');
+  await page.waitForTimeout(200);
+  ok('点「喂奶了」立即保存一条（开始时间 = 现在 20:15）', (await count()) === 1 && (await page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds[0].start)) === T('2026-09-29T20:15:00').getTime());
+  ok('不弹出任何面板（没有左右/分钟）', !(await sheetOpen()) && await page.locator('#lg-side, #lg-minL, #lg-done').count() === 0);
   let text = await payload(page);
-  ok('快捷指令 URL：run-shortcut?name=喂奶闹钟&input=text', (await lastUrl(page)).startsWith('shortcuts://run-shortcut?name=%E5%96%82%E5%A5%B6%E9%97%B9%E9%92%9F&input=text&text='));
+  ok('同一次点击里就打开快捷指令：run-shortcut?name=喂奶闹钟&input=text', (await lastUrl(page)).startsWith('shortcuts://run-shortcut?name=%E5%96%82%E5%A5%B6%E9%97%B9%E9%92%9F&input=text&text='));
   ok('传入 3 行：00:15 / 04:15 / 08:15（跨午夜到 9月30日）', JSON.stringify(times(text)) === JSON.stringify(['2026-09-30 00:15', '2026-09-30 04:15', '2026-09-30 08:15']), text);
-  ok('标题：🍼 该喂奶了（第2次 · 上次 20:15 左边）', text.split('\n')[1].split('|')[1] === '🍼 该喂奶了（第2次 · 上次 20:15 左边）', text);
+  ok('第1行完整格式：时间|标题|备注（无侧别/分钟）', text.split('\n')[0] === '2026-09-30 00:15|🍼 该喂奶了（第1次 · 上次 20:15）|喂奶记录 · 上次 9月29日 20:15 · 间隔4小时 · 第1次提醒（共3次）', text);
+  ok('标题：🍼 该喂奶了（第2次 · 上次 20:15）', text.split('\n')[1].split('|')[1] === '🍼 该喂奶了（第2次 · 上次 20:15）', text);
   await page.waitForTimeout(300);
   ok('首页显示 iPhone 闹钟时间', /00:15.*04:15.*08:15/s.test(await page.locator('#alarmOk').innerText()));
   ok('首页：下次喂奶 00:15（明天）', (await page.locator('#nextTime').innerText()) === '00:15' && (await page.locator('#nextDay').innerText()) === '明天');
-  ok('首页：建议下次先喂右边', (await page.locator('#feedBtn').innerText()).includes('右边'));
+  ok('首页：「✅ 刚刚记录了 20:15 · 撤销」', /刚刚记录了\s*20:15/.test(await page.locator('#justLogged').innerText()) && await page.locator('#btnUndo').isVisible());
+  ok('状态卡只显示「上次 今天 20:15」', (await page.locator('.st-sub').innerText()) === '上次 今天 20:15');
 
-  // 2) 提前喂奶（2 小时后）
+  // 2) 误点两次：3 分钟内再点先确认
+  await clearUrl(page);
+  await page.click('#feedBtn');
+  await page.waitForSelector('#dupNo');
+  ok('3 分钟内又点一次 → 先问「还要再记一次吗」，不记录、不打开快捷指令', (await count()) === 1 && (await lastUrl(page)) === '');
+  await page.click('#dupNo');
+
+  // 3) 提前喂奶（2 小时后）
   await page.clock.fastForward('02:00:00');
   await page.waitForTimeout(1200);
   ok('2 小时后：距上次 2小时、倒计时 1:59:xx', (await page.locator('#sinceLast').innerText()).startsWith('2小时') && (await page.locator('#countdown').innerText()).startsWith('1:59') || (await page.locator('#countdown').innerText()).startsWith('2:00'), await page.locator('#countdown').innerText());
   await page.click('#feedBtn');
+  text = await payload(page);
+  ok('提前喂奶 → 闹钟从这次重新算：02:15 / 06:15 / 10:15', JSON.stringify(times(text)) === JSON.stringify(['2026-09-30 02:15', '2026-09-30 06:15', '2026-09-30 10:15']), text);
+  ok('旧的 00:15 不再出现（快捷指令会先删掉旧提醒）', !text.includes('00:15|') && text.includes('上次 22:15）'));
+
+  // 4) 改上次时间（晚记了）：首页「✏️ 改上次时间」→ 10分钟前 → 重设
+  await page.waitForTimeout(3300);   // 等提示条消失再截图
+  await page.click('#btnFix');
   await page.waitForSelector('#lg-done');
-  ok('第二次记录默认建议右边', await page.locator('#lg-side [data-s=R].on').count() === 1);
+  ok('时间没改时按钮只写「保存」', (await page.locator('#lg-done').innerText()) === '保存');
+  ok('改时间面板：标题 + 原时间 + 预告新闹钟', (await page.locator('#lg-title').innerText()).includes('改喂奶时间') && (await page.locator('.sheet').innerText()).includes('原来记的是 今天 22:15'));
+  ok('改时间面板只有时间（没有左右/分钟/备注）', await page.locator('.sheet input').count() === 1 && !/左|右|分钟数|备注/.test(await page.locator('.sheet').innerText()));
+  await page.click('#lg-ago [data-m="10"]');
+  ok('选「10分钟前」→ 预告下次 02:05，按钮变成「保存 · 更新闹钟」', (await page.locator('#lg-alarm').innerText()).includes('02:05') && (await page.locator('#lg-done').innerText()) === '保存 · 更新闹钟');
   if (SHOT) await page.screenshot({ path: SHOTS + '03-log-sheet.png' });
   await page.click('#lg-done');
   text = await payload(page);
-  ok('提前喂奶 → 闹钟从这次重新算：02:15 / 06:15 / 10:15', JSON.stringify(times(text)) === JSON.stringify(['2026-09-30 02:15', '2026-09-30 06:15', '2026-09-30 10:15']), text);
-  ok('旧的 00:15 不再出现（快捷指令会先删掉旧提醒）', !text.includes('00:15|') && text.includes('上次 22:15 右边'));
+  ok('改最近一次的时间 → 按新时间重设（02:05）', times(text)[0] === '2026-09-30 02:05' && text.includes('上次 22:05）'), text);
 
-  // 3) 编辑最近一次：开始时间改成 10 分钟前 → 重设
+  // 5) 从历史里改时间（手动选时间）
+  await page.goto(BASE + '#/history');
   await page.click('.feed-row >> nth=0');
-  await page.waitForSelector('#lg-done');
-  ok('编辑面板标题', (await page.locator('#lg-title').innerText()).includes('编辑'));
-  await page.click('#lg-ago [data-m="10"]');
+  await page.waitForSelector('#lg-start');
+  await page.fill('#lg-start', '2026-09-29T22:00');
   await page.click('#lg-done');
   text = await payload(page);
-  ok('编辑最近一次的开始时间 → 按新时间重设（02:05）', times(text)[0] === '2026-09-30 02:05', text);
+  ok('历史里点一条改成 22:00 → 重设 02:00 / 06:00 / 10:00', JSON.stringify(times(text)) === JSON.stringify(['2026-09-30 02:00', '2026-09-30 06:00', '2026-09-30 10:00']), text);
 
-  // 4) 只改分钟数 → 不打开快捷指令
+  // 6) 补记更早的一次：先选时间再保存，不影响闹钟
   await clearUrl(page);
-  await page.click('.feed-row >> nth=0');
-  await page.waitForSelector('#lg-done');
-  await page.fill('#lg-minR', '12');
-  ok('只改分钟：完成按钮不再写「更新闹钟」', !(await page.locator('#lg-done').innerText()).includes('更新闹钟'));
+  await page.click('#btnBackfill');
+  await page.waitForSelector('#lg-start');
+  ok('补记：打开面板时还没保存', (await count()) === 2 && (await page.locator('#lg-title').innerText()).includes('补记'));
+  await page.fill('#lg-start', '2026-09-30T08:00');
+  ok('不能补记未来的时间', (await page.inputValue('#lg-start')) !== '2026-09-30T08:00');
+  await page.fill('#lg-start', '2026-09-29T18:00');
+  ok('补记更早的：提示闹钟不用变，按钮只写「保存」', (await page.locator('#lg-alarm').innerText()).includes('不用变') && (await page.locator('#lg-done').innerText()) === '保存');
   await page.click('#lg-done');
-  ok('只改分钟数 → 不打开快捷指令', (await lastUrl(page)) === '');
+  await page.waitForTimeout(200);
+  ok('补记 18:00 → 保存 3 条、不打开快捷指令', (await count()) === 3 && (await lastUrl(page)) === '');
+  ok('历史：今天 3 次（只显示次数和间隔）', (await page.locator('.day-head').first().innerText()).includes('3 次') && !/左|右/.test(await page.locator('#app').innerText()));
 
-  // 5) 删除最近一次 → 回到 20:15 那次重新算
+  // 7) 删除最近一次 → 回到 20:15 那次重新算
   await page.click('.feed-row >> nth=0');
   await page.waitForSelector('#lg-del');
   await page.click('#lg-del');
@@ -94,20 +118,26 @@ const times = (text) => text.split('\n').map((l) => l.slice(0, 16));
   await page.click('#lg-del');
   text = await payload(page);
   ok('删除最近一次 → 按上一次（20:15）重设：00:15 / 04:15 / 08:15', JSON.stringify(times(text)) === JSON.stringify(['2026-09-30 00:15', '2026-09-30 04:15', '2026-09-30 08:15']), text);
+  await page.click('.feed-row >> nth=0');
+  await page.click('#lg-del'); await page.click('#lg-del');
+  text = await payload(page);
+  ok('再删 20:15 → 按 18:00 算，第1次已过：加一条「已超时」1分钟后响', text.split('\n')[0].includes('🍼 该喂奶了（已超时 · 上次 18:00）'), text);
 
-  // 6) 删除全部 → CLEAR
+  // 8) 删除全部 → CLEAR
   await page.click('.feed-row >> nth=0');
   await page.click('#lg-del'); await page.click('#lg-del');
   ok('全部删除 → 只清空（CLEAR）', (await payload(page)) === 'CLEAR');
 
-  // 7) 撤销刚记的一次（不应打开快捷指令）
-  await page.click('#feedBtn'); await page.waitForSelector('#lg-del');
-  await clearUrl(page);
-  await page.click('#lg-del');
-  ok('撤销刚记的一次：记录消失、不打开快捷指令', (await page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds.length)) === 0 && (await lastUrl(page)) === '');
+  // 9) 刚点完发现点错 → 撤销（闹钟也改回去）
+  await page.goto(BASE + '#/');
+  await page.click('#feedBtn');
+  ok('再记一次 → 3 个闹钟', (await payload(page)).split('\n').length === 3);
+  await page.click('#btnUndo');
+  await page.waitForTimeout(200);
+  ok('撤销：记录消失，快捷指令改为清空（CLEAR）', (await count()) === 0 && (await payload(page)) === 'CLEAR');
 
   // 8) 设置：次数、间隔
-  await page.click('#feedBtn'); await page.click('#lg-done');   // 22:15 左边
+  await page.click('#feedBtn');   // 22:15
   await page.goto(BASE + '#/settings');
   await page.click('#cntPlus'); await page.click('#cntPlus'); await page.click('#cntPlus'); await page.click('#cntPlus');
   ok('闹钟次数最多 6', (await page.locator('#cntVal').innerText()) === '6');
@@ -137,12 +167,12 @@ const times = (text) => text.split('\n').map((l) => l.slice(0, 16));
   await page.clock.fastForward('03:00:30');   // 22:15 + 3h = 01:15
   await page.waitForSelector('#alarm:not([hidden])', { timeout: 10000 });
   ok('到点时 App 内弹出全屏「该喂奶了」', (await page.locator('#alarm').innerText()).includes('该喂奶了'));
-  ok('全屏提醒说明原因和建议侧别', /满 3小时.*第1次提醒/s.test(await page.locator('#alarm').innerText()) && (await page.locator('#alarm').innerText()).includes('右边'));
+  ok('全屏提醒说明原因（没有侧别）', /满 3小时.*第1次提醒/s.test(await page.locator('#alarm').innerText()) && !/左边|右边/.test(await page.locator('#alarm').innerText()));
   if (SHOT) await page.screenshot({ path: SHOTS + '06-alarm-fullscreen.png' });
   await page.click('#aFeed');
-  await page.waitForSelector('#lg-done');
-  ok('全屏提醒点「开始喂奶」→ 记一次并打开面板', (await page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds.length)) === 2);
-  await page.click('#lg-done');
+  await page.waitForTimeout(200);
+  text = await payload(page);
+  ok('全屏提醒点「现在喂奶」→ 直接记一次并重设（01:15 起每 3 小时，4 个）', (await count()) === 2 && JSON.stringify(times(text)) === JSON.stringify(['2026-09-30 04:15', '2026-09-30 07:15', '2026-09-30 10:15', '2026-09-30 13:15']) && !(await sheetOpen()), text);
   ok('全屏提醒不再重复弹出', await page.locator('#alarm').isHidden());
   const st = await page.locator('#statusCard').innerText();
   ok('状态卡：跨午夜后显示 上次 今天 01:15', st.includes('上次 今天 01:15'), st);
@@ -160,7 +190,23 @@ const times = (text) => text.split('\n').map((l) => l.slice(0, 16));
   await page.setInputFiles('#fileImport', file);
   await page.click('.sheet [data-a=yes]');
   await page.waitForTimeout(300);
-  ok('导入后恢复 2 条', (await page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds.length)) === 2);
+  ok('导入后恢复 2 条', (await count()) === 2);
+  // v1.0 的备份（带左右/分钟/备注）也能导入
+  const legacy = { app: 'feed-record', exportedAt: '2026-09-29T12:00:00.000Z', data: { version: 1, feeds: [
+    { id: 'v1a', start: T('2026-09-29T20:15:00').getTime(), side: 'L', minL: 12, minR: 0, note: '吐奶', createdAt: 1, updatedAt: 2 },
+    { id: 'v1b', start: T('2026-09-29T23:40:00').getTime(), side: 'B', minL: 8, minR: 9, note: '', createdAt: 3, updatedAt: 4 }],
+    alarm: { sig: 'x|1|L|240|3', sentAt: 0, times: [] }, settings: { intervalMin: 240, alarmCount: 3 } } };
+  fs.writeFileSync('/tmp/feed-backup-v1.0.json', JSON.stringify(legacy));
+  await page.setInputFiles('#fileImport', '/tmp/feed-backup-v1.0.json');
+  await page.click('.sheet [data-a=yes]');
+  await page.waitForTimeout(300);
+  ok('导入 v1.0 旧备份（带侧别/分钟）：2 条，旧字段保留', (await count()) === 2 && (await page.evaluate(() => JSON.parse(localStorage.getItem('feedrecord.v1')).feeds.find((f) => f.id === 'v1a').minL)) === 12);
+  await page.goto(BASE + '#/history'); await page.waitForTimeout(200);
+  const ht = await page.locator('#app').innerText();
+  ok('旧记录在历史里只显示时间和间隔', ht.includes('23:40') && ht.includes('3小时25分') && !/左|右边|两边|吐奶/.test(ht), ht.slice(0, 300));
+  await page.goto(BASE + '#/');
+  await page.click('#btnReset');
+  ok('旧记录的闹钟文本也没有侧别', (await payload(page)).split('\n')[0].includes('（第1次 · 上次 23:40）'), await payload(page));
   ok('功能测试无 JS 错误', page.errors.length === 0, page.errors.join(' | '));
   await ctx.close();
 }
@@ -191,7 +237,9 @@ if (SHOT) {
     await page.waitForTimeout(300);
     await page.screenshot({ path: SHOTS + (scheme === 'light' ? '01-home-light.png' : '02-home-dark.png') });
     if (scheme === 'light') {
-      ok('截图数据：今天 6 次 101 分钟', (await page.locator('#todayCount').innerText()) === '6' && (await page.locator('#todayMin').innerText()) === '101');
+      ok('截图数据：今天 6 次，只显示次数和平均间隔', (await page.locator('#todayCount').innerText()) === '6' && await page.locator('#todayMin').count() === 0 && (await page.locator('#todayGap').innerText()).includes('小时'));
+      ok('v1.0 旧数据（5 段闹钟签名、带侧别）升级后不误报「闹钟还没更新」', await page.locator('#alarmWarn').count() === 0 && /23:55/.test(await page.locator('#alarmOk').innerText()));
+      ok('首页不显示旧记录的侧别/备注', !/左边|右边|两边|吐了一点奶/.test(await page.locator('#app').innerText()));
       await page.goto(BASE + '#/history'); await page.waitForTimeout(300);
       await page.screenshot({ path: SHOTS + '04-history.png' });
       await page.goto(BASE + '#/help'); await page.waitForTimeout(300);
